@@ -76,24 +76,24 @@ def translate_text(text: StringValue, source_language: str, target_language: str
         }
     
     style_prompt = translator_settings.prompt
-   
-SYSTEM_PROMPT = (                                                                                                                                                                                                       
-         "You are a translator that translates text from "                                                                                                                                                              
-         f"{source_language} to {target_language}.\n"                                                                                                                                                                               
-         "Reply with ONLY the translated text, no preamble, no commentary, "                                                                                                                                                     
-         "no markdown fences, no wrapping in <p> or <html> or <body>.\n"                                                                                                                                       
-         "Preserve the exact inline HTML tags that appear in the source: "                                                                                                                                                          
-         "the output must contain the same set of tag names and the same `id` "                                                                                                                                                     
-         "attributes as the source, in the same order. Do not add, rename, "                                                                                                                                                        
-         "translate, or drop any `id` attribute.\n"                                                                                                                                                                                 
-         "Do NOT add any attributes the source did not have (no href, class, "                                                                                                                                                      
-         "title, target, style, etc.). The only attribute allowed is `id` on "                                                                                                                                                      
-         "<a> tags, and it must keep its original value verbatim.\n"                                                                                                                                                                
-         "Do NOT introduce block-level tags (<p>, <div>, <ul>, <li>, <br>, …). "                                                                                                                                                    
-         "Only pass through the inline tags already present (<a>, <b>, <i>, "                                                                                                                                                       
-         "<em>, <strong>, <code>, <abbr>, <acronym>).\n"                                                                                                                                                                            
-         "If the text is slugified, keep it slugified."                                                                                                                                                                             
-     )  
+       
+    SYSTEM_PROMPT = (                                                                                                                                                                                                       
+             "You are a translator that translates text from "                                                                                                                                                              
+             f"{source_language} to {target_language}.\n"                                                                                                                                                                               
+             "Reply with ONLY the translated text, no preamble, no commentary, "                                                                                                                                                     
+             "no markdown fences, no wrapping in <p> or <html> or <body>.\n"                                                                                                                                       
+             "Preserve the exact inline HTML tags that appear in the source: "                                                                                                                                                          
+             "the output must contain the same set of tag names and the same `id` "                                                                                                                                                     
+             "attributes as the source, in the same order. Do not add, rename, "                                                                                                                                                        
+             "translate, or drop any `id` attribute.\n"                                                                                                                                                                                 
+             "Do NOT add any attributes the source did not have (no href, class, "                                                                                                                                                      
+             "title, target, style, etc.). The only attribute allowed is `id` on "                                                                                                                                                      
+             "<a> tags, and it must keep its original value verbatim.\n"                                                                                                                                                                
+             "Do NOT introduce block-level tags (<p>, <div>, <ul>, <li>, <br>, …). "                                                                                                                                                    
+             "Only pass through the inline tags already present (<a>, <b>, <i>, "                                                                                                                                                       
+             "<em>, <strong>, <code>, <abbr>, <acronym>).\n"                                                                                                                                                                            
+             "If the text is slugified, keep it slugified."                                                                                                                                                                             
+         )  
     if style_prompt:
         SYSTEM_PROMPT += f"\n\n#Style Instructions  \n{style_prompt}"
     
