@@ -69,16 +69,21 @@ class AITranslator(BaseMachineTranslator):
 def sanitize_html(html: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
 
-    def unwrap_block(element):
+    def clean(element):
         for child in list(getattr(element, "children", [])):
             if isinstance(child, NavigableString):
                 continue
             if isinstance(child, Tag):
-                unwrap_block(child)
+                clean(child)
                 if child.name not in INLINE_TAGS:
                     child.unwrap()
+                else:
+                    allowed_keys = {"id"} if child.name == "a" else set()
+                    child.attrs = {
+                        k: v for k, v in child.attrs.items() if k in allowed_keys
+                    }
 
-    unwrap_block(soup)
+    clean(soup)
     return str(soup)
 
 
@@ -145,6 +150,12 @@ def translate_text(text: StringValue, source_language: str, target_language: str
     if not content:
         return {"error": _("Translation failed"), "usage": usage}
 
+    lines = content.splitlines()
+    if lines and lines[0].lstrip().startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].lstrip().startswith("```"):
+        lines = lines[:-1]
+    content = "\n".join(lines).strip()
     sanitized = sanitize_html(content)
 
     try:
