@@ -1,10 +1,11 @@
 import concurrent
 from django.utils.translation import gettext_lazy as _, get_language_info
+from bs4 import BeautifulSoup, NavigableString, Tag
 
 from wagtail.models import Locale
 
 from wagtail_localize.machine_translators.base import BaseMachineTranslator
-from wagtail_localize.strings import StringValue
+from wagtail_localize.strings import INLINE_TAGS, StringValue
 
 from wagtail_localize_ai.models import AITranslatorSettings, TranslationLog
 from wagtail_localize_ai.utils import get_llm_client, get_provider_display_name, normalize_model_identifier
@@ -64,6 +65,22 @@ class AITranslator(BaseMachineTranslator):
         not_same_language = source_locale.language_code != target_locale.language_code
 
         return has_provider and has_model and not_same_language
+
+def sanitize_html(html: str) -> str:
+    soup = BeautifulSoup(html, "html.parser")
+
+    def unwrap_block(element):
+        for child in list(getattr(element, "children", [])):
+            if isinstance(child, NavigableString):
+                continue
+            if isinstance(child, Tag):
+                unwrap_block(child)
+                if child.name not in INLINE_TAGS:
+                    child.unwrap()
+
+    unwrap_block(soup)
+    return str(soup)
+
 
 def translate_text(text: StringValue, source_language: str, target_language: str):
     translator_settings = AITranslatorSettings.load()
@@ -128,7 +145,14 @@ def translate_text(text: StringValue, source_language: str, target_language: str
     if not content:
         return {"error": _("Translation failed"), "usage": usage}
 
+    sanitized = sanitize_html(content)
+
+    try:
+        value = StringValue.from_translated_html(sanitized)
+    except ValueError as e:
+        return {"error": str(e), "usage": usage}
+
     return {
-        "result": {text: StringValue.from_translated_html(content)},
+        "result": {text: value},
         "usage": usage,
     }
