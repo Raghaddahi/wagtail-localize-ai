@@ -116,7 +116,8 @@ def translate_text(text: StringValue, source_language: str, target_language: str
         "- Wrap clickable UI labels (buttons, menu items) in the target language's standard quotation convention "
         "(e.g. « » in Arabic/French) only when the text follows a verb like click/press/select. "
         "Don't wrap section headings or plain nouns.\n"
-        "- Use one consistent term per concept throughout."
+        "- Use one consistent term per concept throughout.\n"
+        "- Text inside <b> or <i> tags marks a UI label/button. Keep that text in English verbatim (e.g. <b>Publish</b> stays <b>Publish</b>, not <b>«نشر»</b>). Do not translate or wrap it in guillemets."
     )
     if style_prompt:
         SYSTEM_PROMPT += f"\n\n#Style Instructions  \n{style_prompt}"
