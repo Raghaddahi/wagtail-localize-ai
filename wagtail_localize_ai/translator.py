@@ -114,7 +114,6 @@ def translate_text(text: StringValue, source_language: str, target_language: str
         "Don't wrap section headings or plain nouns.\n"
         "- Use one consistent term per concept throughout."
     )
-    )  
     if style_prompt:
         SYSTEM_PROMPT += f"\n\n#Style Instructions  \n{style_prompt}"
     
