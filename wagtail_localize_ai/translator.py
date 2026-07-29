@@ -117,7 +117,9 @@ def translate_text(text: StringValue, source_language: str, target_language: str
         "(e.g. « » in Arabic/French) only when the text follows a verb like click/press/select. "
         "Don't wrap section headings or plain nouns.\n"
         "- Use one consistent term per concept throughout.\n"
-        "- Text inside <b> or <i> tags marks a UI label/button. Keep that text in English verbatim (e.g. <b>Publish</b> stays <b>Publish</b>, not <b>«نشر»</b>). Do not translate or wrap it in guillemets."
+        "- Text inside <b> or <i> tags marks a UI label/button — keep it in English verbatim, "
+        "never translate or wrap it, even if it follows click/press/select. "
+        "The guillemet-wrapping rule above applies only to UI labels that are NOT inside <b>/<i> tags."
     )
     if style_prompt:
         SYSTEM_PROMPT += f"\n\n#Style Instructions  \n{style_prompt}"
