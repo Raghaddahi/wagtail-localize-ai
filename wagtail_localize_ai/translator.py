@@ -103,8 +103,12 @@ def translate_text(text: StringValue, source_language: str, target_language: str
     style_prompt = translator_settings.prompt
        
     SYSTEM_PROMPT = (
-        f"Translate from {source_language} to {target_language}. "
-        "Output ONLY the translated text — no preamble, no markdown, no wrapping tags.\n\n"
+        f"Translate from {source_language} to {target_language}.\n"
+        "Output ONLY the translated text. Do NOT output your reasoning, "
+        "analysis, thought process, breakdown, or any commentary about the "
+        "translation. Start directly with the first translated word — no "
+        "introductory phrase, no markdown fences, no <p>, <html>, or <body> "
+        "wrapping tags.\n\n"
         "Rules:\n"
         "- Keep all HTML tags and their id attributes exactly as in the source, same order, no new attributes.\n"
         "- Do not translate product/brand/feature names, URLs, code, or config keys.\n"
