@@ -50,9 +50,12 @@ class AITranslator(BaseMachineTranslator):
                 error += result["error"] + "\n"
                 continue
             results.update(result["result"])
-        
+
         translation_log.error = error
         translation_log.save()
+
+        if not results and strings:
+            raise RuntimeError(error.strip() or str(_("Translation failed")))
 
         return results
 
