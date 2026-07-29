@@ -143,7 +143,8 @@ def translate_text(text: StringValue, source_language: str, target_language: str
         "established loanword in the target language.\n"
         "Preserve the exact number, case, and punctuation style of the source "
         "where the target language allows; do not add headings, lists, or "
-        "commentary."
+        "commentary.\n"
+        "Do not duplicate or repeat words; output each word once."
     )  
     if style_prompt:
         SYSTEM_PROMPT += f"\n\n#Style Instructions  \n{style_prompt}"
