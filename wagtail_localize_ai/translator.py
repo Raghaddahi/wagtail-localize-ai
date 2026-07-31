@@ -107,6 +107,39 @@ def get_clean_translation(response, log_leaks=True):
 
     return content
 
+def has_degenerate_repetition(text, min_repeat_len=30, max_allowed_repeats=2):
+    """Detect if a chunk of text repeats itself many times in a row —
+    a known LLM failure mode, especially with temperature=0."""
+    if not text or len(text) < min_repeat_len * max_allowed_repeats:
+        return False
+
+    # Check if the text is mostly made of one paragraph repeated
+    paragraphs = [p.strip() for p in text.split('.') if len(p.strip()) > min_repeat_len]
+    if not paragraphs:
+        return False
+
+    from collections import Counter
+    counts = Counter(paragraphs)
+    most_common_text, most_common_count = counts.most_common(1)[0]
+    return most_common_count > max_allowed_repeats
+    
+
+def has_degenerate_repetition(text, min_repeat_len=30, max_allowed_repeats=2):
+    """Detect if a chunk of text repeats itself many times in a row —
+    a known LLM failure mode, especially with temperature=0."""
+    if not text or len(text) < min_repeat_len * max_allowed_repeats:
+        return False
+
+    # Check if the text is mostly made of one paragraph repeated
+    paragraphs = [p.strip() for p in text.split('.') if len(p.strip()) > min_repeat_len]
+    if not paragraphs:
+        return False
+
+    from collections import Counter
+    counts = Counter(paragraphs)
+    most_common_text, most_common_count = counts.most_common(1)[0]
+    return most_common_count > max_allowed_repeats
+
 def translate_text(text: StringValue, source_language: str, target_language: str):
     translator_settings = AITranslatorSettings.load()
 
@@ -155,7 +188,8 @@ def translate_text(text: StringValue, source_language: str, target_language: str
         client = get_llm_client(provider)
         response = client.completion(
             model=model,
-            temperature=0,
+            temperature=0.3,
+            max_tokens=1000,
             messages=messages,
         )
     except Exception as e:
@@ -169,6 +203,12 @@ def translate_text(text: StringValue, source_language: str, target_language: str
         "output_tokens": response.usage.completion_tokens or 0,
     }
 
+    if has_degenerate_repetition(content):
+        return {"error": _("Translation failed: degenerate repetition detected"), "usage": usage}
+
+    if not content:
+        return {"error": _("Translation failed"), "usage": usage}
+        
     if not content:
         return {"error": _("Translation failed"), "usage": usage}
 
