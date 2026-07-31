@@ -1,3 +1,4 @@
+import re
 import concurrent
 from django.utils.translation import gettext_lazy as _, get_language_info
 from bs4 import BeautifulSoup, NavigableString, Tag
@@ -89,6 +90,22 @@ def sanitize_html(html: str) -> str:
     clean(soup)
     return str(soup)
 
+def get_clean_translation(response, log_leaks=True):
+    message = response.choices[0].message
+    raw_content = (message.content or "").strip()
+
+    content = re.sub(r'<think>.*?</think>', '', raw_content, flags=re.DOTALL)
+    content = re.sub(r'<\|channel\|>thought.*?<channel\|>', '', content, flags=re.DOTALL)
+    content = re.sub(
+        r'^(Let me|First,? I|I need to|Okay,? let\'?s|Looking at|Analyzing).*?\n\n',
+        '', content, flags=re.DOTALL | re.IGNORECASE
+    )
+    content = content.strip()
+
+    if log_leaks and content != raw_content:
+        print(f"[reasoning-leak-detected] model={response.model} stripped {len(raw_content) - len(content)} chars")
+
+    return content
 
 def translate_text(text: StringValue, source_language: str, target_language: str):
     translator_settings = AITranslatorSettings.load()
@@ -146,7 +163,7 @@ def translate_text(text: StringValue, source_language: str, target_language: str
             "error": str(e),
         }
 
-    content = (response.choices[0].message.content or "").strip()
+    content = get_clean_translation(response)    
     usage = {
         "input_tokens": response.usage.prompt_tokens or 0,
         "output_tokens": response.usage.completion_tokens or 0,
