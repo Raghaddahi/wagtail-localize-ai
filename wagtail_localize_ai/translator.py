@@ -1,4 +1,3 @@
-import re
 import concurrent
 from django.utils.translation import gettext_lazy as _, get_language_info
 from bs4 import BeautifulSoup, NavigableString, Tag
@@ -10,6 +9,7 @@ from wagtail_localize.strings import INLINE_TAGS, StringValue
 
 from wagtail_localize_ai.models import AITranslatorSettings, TranslationLog
 from wagtail_localize_ai.utils import get_llm_client, get_provider_display_name, normalize_model_identifier
+from wagtail_localize_ai.extraction import extract_translation
 
 
 class AITranslator(BaseMachineTranslator):
@@ -90,55 +90,6 @@ def sanitize_html(html: str) -> str:
     clean(soup)
     return str(soup)
 
-def get_clean_translation(response, log_leaks=True):
-    message = response.choices[0].message
-    raw_content = (message.content or "").strip()
-
-    content = re.sub(r'<think>.*?</think>', '', raw_content, flags=re.DOTALL)
-    content = re.sub(r'<\|channel\|>thought.*?<channel\|>', '', content, flags=re.DOTALL)
-    content = re.sub(
-        r'^(Let me|First,? I|I need to|Okay,? let\'?s|Looking at|Analyzing).*?\n\n',
-        '', content, flags=re.DOTALL | re.IGNORECASE
-    )
-    content = content.strip()
-
-    if log_leaks and content != raw_content:
-        print(f"[reasoning-leak-detected] model={response.model} stripped {len(raw_content) - len(content)} chars")
-
-    return content
-
-def has_degenerate_repetition(text, min_repeat_len=30, max_allowed_repeats=2):
-    """Detect if a chunk of text repeats itself many times in a row —
-    a known LLM failure mode, especially with temperature=0."""
-    if not text or len(text) < min_repeat_len * max_allowed_repeats:
-        return False
-
-    # Check if the text is mostly made of one paragraph repeated
-    paragraphs = [p.strip() for p in text.split('.') if len(p.strip()) > min_repeat_len]
-    if not paragraphs:
-        return False
-
-    from collections import Counter
-    counts = Counter(paragraphs)
-    most_common_text, most_common_count = counts.most_common(1)[0]
-    return most_common_count > max_allowed_repeats
-    
-
-def has_degenerate_repetition(text, min_repeat_len=30, max_allowed_repeats=2):
-    """Detect if a chunk of text repeats itself many times in a row —
-    a known LLM failure mode, especially with temperature=0."""
-    if not text or len(text) < min_repeat_len * max_allowed_repeats:
-        return False
-
-    # Check if the text is mostly made of one paragraph repeated
-    paragraphs = [p.strip() for p in text.split('.') if len(p.strip()) > min_repeat_len]
-    if not paragraphs:
-        return False
-
-    from collections import Counter
-    counts = Counter(paragraphs)
-    most_common_text, most_common_count = counts.most_common(1)[0]
-    return most_common_count > max_allowed_repeats
 
 def translate_text(text: StringValue, source_language: str, target_language: str):
     translator_settings = AITranslatorSettings.load()
@@ -167,9 +118,7 @@ def translate_text(text: StringValue, source_language: str, target_language: str
         "(e.g. « » in Arabic/French) only when the text follows a verb like click/press/select. "
         "Don't wrap section headings or plain nouns.\n"
         "- Use one consistent term per concept throughout.\n"
-        "- Text inside <b> or <i> tags marks a UI label/button — keep it in English verbatim, "
-        "never translate or wrap it, even if it follows click/press/select. "
-        "The guillemet-wrapping rule above applies only to UI labels that are NOT inside <b>/<i> tags."
+        "- Text inside <b> or <i> tags marks a UI label/button. Keep that text in English verbatim (e.g. <b>Publish</b> stays <b>Publish</b>, not <b>«نشر»</b>). Do not translate or wrap it in guillemets."
     )
     if style_prompt:
         SYSTEM_PROMPT += f"\n\n#Style Instructions  \n{style_prompt}"
@@ -188,8 +137,7 @@ def translate_text(text: StringValue, source_language: str, target_language: str
         client = get_llm_client(provider)
         response = client.completion(
             model=model,
-            temperature=0.3,
-            max_tokens=1000,
+            temperature=0,
             messages=messages,
         )
     except Exception as e:
@@ -197,18 +145,13 @@ def translate_text(text: StringValue, source_language: str, target_language: str
             "error": str(e),
         }
 
-    content = get_clean_translation(response)    
+    content = (response.choices[0].message.content or "").strip()
+    content = extract_translation(content, text.get_translatable_html())
     usage = {
         "input_tokens": response.usage.prompt_tokens or 0,
         "output_tokens": response.usage.completion_tokens or 0,
     }
 
-    if has_degenerate_repetition(content):
-        return {"error": _("Translation failed: degenerate repetition detected"), "usage": usage}
-
-    if not content:
-        return {"error": _("Translation failed"), "usage": usage}
-        
     if not content:
         return {"error": _("Translation failed"), "usage": usage}
 
