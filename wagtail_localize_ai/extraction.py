@@ -244,21 +244,35 @@ def extract_translation(content, source_html):
     ids = [m.group(1) for m in _ID_RE.finditer(source_html)]
     content = strip_reasoning_blocks(content)
     if not ids:
-        return content.strip()
+        # No id anchor available (plain-text segment): collapse any loop the
+        # model may have produced at temperature=0, then return.
+        return _collapse_loops(content).strip()
 
     anchors = []
     for id_str in set(ids):
         for m in _ID_OCCURRENCE_RE(id_str).finditer(content):
             anchors.append(m.start())
+    # Contract guard: when the source segment carries inline ids the
+    # translation must echo them (so downstream render-html can restore attrs
+    # like href); a translation that dropped them is not usable even if it
+    # parses as valid HTML. Some models (notably MiniMax-M2.7) systematically
+    # ignore the "keep HTML tags and id attributes" rule and also fixate-loop
+    # their Arabic output. Rather than save tag-stripped garbage, fail the
+    # segment so the operator sees the error and switches models. Any source id
+    # missing from the cleaned output -> fail.
+    missing = [i for i in set(ids) if i not in [m.group(1) for m in _ID_RE.finditer(content)]]
+    if missing:
+        return ""
+
     target_script = _detect_target_script(content, anchors)
 
     chosen = []
     for id_str in ids:
         pos = _pick_occurrence(content, id_str, target_script)
         if pos is None:
-            # id absent altogether -> can't anchor; fall back to cleaned content
-            # and let downstream validation decide.
-            return content.strip()
+            # id absent altogether -> can't anchor; fail the segment rather
+            # than save content that violates the structure contract.
+            return ""
         chosen.append(pos)
     first_pos, last_pos = chosen[0], chosen[-1]
 
