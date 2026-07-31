@@ -1,4 +1,6 @@
 import concurrent
+import time
+
 from django.utils.translation import gettext_lazy as _, get_language_info
 from bs4 import BeautifulSoup, NavigableString, Tag
 
@@ -9,6 +11,22 @@ from wagtail_localize.strings import INLINE_TAGS, StringValue
 
 from wagtail_localize_ai.models import AITranslatorSettings, TranslationLog
 from wagtail_localize_ai.utils import get_llm_client, get_provider_display_name, normalize_model_identifier
+
+
+# Concurrency for per-page segment translation. The Argyll gateway enforces a
+# per-minute token quota on the API key; max_workers=8 bursts ~8 simultaneous
+# requests and can drain the bucket before any of them returns, causing every
+# segment on the page to come back "Rate limit exceeded" simultaneously and
+# the whole page to fail with a single concatenated RuntimeError. max_workers=3
+# keeps parallelism high enough to be fast while staying under the burst cap.
+MAX_WORKERS = 3
+
+# Rate-limit retry. On HTTP 429 or a body containing "rate limit" we sleep with
+# exponential backoff + a little jitter, then retry the SAME segment. Limits:
+# 3 retries (4 attempts total) keeps worst-case wait under ~15s, well inside
+# wagtail-localize's request timeout.
+MAX_RETRIES = 3
+BACKOFF_BASE = 2.0  # seconds; sleeps 2s, 4s, 8s (+jitter)
 
 
 class AITranslator(BaseMachineTranslator):
@@ -35,19 +53,23 @@ class AITranslator(BaseMachineTranslator):
             error=None,
         )
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             executor_results = list(
                 executor.map(translate_text, strings, [source_language] * len(strings), [target_language] * len(strings))
             )
         
         results = {}
         error = ""
+        seen_errors = []
         for result in executor_results:
             if "usage" in result:
                 translation_log.input_tokens += result["usage"]["input_tokens"]
                 translation_log.output_tokens += result["usage"]["output_tokens"]
             if "error" in result:
-                error += result["error"] + "\n"
+                err = result["error"]
+                if err not in seen_errors:
+                    seen_errors.append(err)
+                error += err + "\n"
                 continue
             results.update(result["result"])
 
@@ -55,7 +77,11 @@ class AITranslator(BaseMachineTranslator):
         translation_log.save()
 
         if not results and strings:
-            raise RuntimeError(error.strip() or str(_("Translation failed")))
+            # Surface only the distinct error messages, not 22 copies of the
+            # same "Rate limit exceeded". Keeps the admin-visible RuntimeError
+            # and the TranslationLog readable.
+            summary = "; ".join(seen_errors) if seen_errors else str(_("Translation failed"))
+            raise RuntimeError(summary)
 
         return results
 
@@ -68,6 +94,22 @@ class AITranslator(BaseMachineTranslator):
         not_same_language = source_locale.language_code != target_locale.language_code
 
         return has_provider and has_model and not_same_language
+
+def _is_rate_limit(exc) -> bool:
+    """True if `exc` is a rate-limit rejection from the gateway.
+
+    Detects both the OpenAI SDK's typed ``RateLimitError`` (HTTP 429) and the
+    Argyll gateway's text-body form (``"Rate limit exceeded"`` in the message,
+    served as a generic ``APIStatusError`` without a clean status).
+    """
+    # Typed 429 from the OpenAI SDK.
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status == 429:
+        return True
+    # Body-substring fallback (Argyll gateway puts it in the message text).
+    msg = str(exc).lower()
+    return "rate limit" in msg or "rate_limit" in msg or "try again" in msg and "later" in msg
+
 
 def sanitize_html(html: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
@@ -132,16 +174,31 @@ def translate_text(text: StringValue, source_language: str, target_language: str
         {"role": "user", "content": text.get_translatable_html()},
     ]
 
-    try:
-        client = get_llm_client(provider)
-        response = client.completion(
-            model=model,
-            temperature=0,
-            messages=messages,
-        )
-    except Exception as e:
+    client = get_llm_client(provider)
+    last_error = None
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            response = client.completion(
+                model=model,
+                temperature=0,
+                messages=messages,
+            )
+            break
+        except Exception as e:
+            last_error = e
+            if attempt < MAX_RETRIES and _is_rate_limit(e):
+                # Backoff + jitter to stagger concurrent retries and avoid a
+                # synchronized retry burst that just re-trips the limit.
+                import random
+                sleep_s = BACKOFF_BASE * (2**attempt) + random.uniform(0, 1)
+                time.sleep(sleep_s)
+                continue
+            return {
+                "error": str(e),
+            }
+    else:
         return {
-            "error": str(e),
+            "error": str(last_error),
         }
 
     content = (response.choices[0].message.content or "").strip()
