@@ -9,7 +9,6 @@ from wagtail_localize.strings import INLINE_TAGS, StringValue
 
 from wagtail_localize_ai.models import AITranslatorSettings, TranslationLog
 from wagtail_localize_ai.utils import get_llm_client, get_provider_display_name, normalize_model_identifier
-from wagtail_localize_ai.extraction import extract_translation
 
 
 class AITranslator(BaseMachineTranslator):
@@ -146,7 +145,6 @@ def translate_text(text: StringValue, source_language: str, target_language: str
         }
 
     content = (response.choices[0].message.content or "").strip()
-    content = extract_translation(content, text.get_translatable_html())
     usage = {
         "input_tokens": response.usage.prompt_tokens or 0,
         "output_tokens": response.usage.completion_tokens or 0,
