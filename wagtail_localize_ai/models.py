@@ -17,6 +17,28 @@ class TranslationLog(models.Model):
 
     error = models.TextField(null=True, blank=True, verbose_name=_("Error"))
 
+    page_id = models.IntegerField(
+        null=True, blank=True, verbose_name=_("Page ID"),
+        help_text=_("Best-effort ID of the page this string belongs to."),
+    )
+    string_id = models.IntegerField(
+        null=True, blank=True, verbose_name=_("String ID"),
+        help_text=_("ID of the wagtail_localize.String this segment was translated from."),
+    )
+    source_text = models.TextField(
+        null=True, blank=True, verbose_name=_("Source Text"),
+        help_text=_("The original text submitted for translation, for later quality review."),
+    )
+    translated_text = models.TextField(
+        null=True, blank=True, verbose_name=_("Translated Text"),
+        help_text=_("The translated text returned by the model, for later quality review."),
+    )
+    cost_usd = models.DecimalField(
+        null=True, blank=True, max_digits=12, decimal_places=6,
+        verbose_name=_("Cost (USD)"),
+        help_text=_("Dollar cost of this translation, computed from token usage and the pricing table."),
+    )
+
     @property
     def status(self):
         return not bool(self.error)

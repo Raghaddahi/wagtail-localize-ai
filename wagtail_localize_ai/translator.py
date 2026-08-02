@@ -10,6 +10,7 @@ from wagtail_localize.machine_translators.base import BaseMachineTranslator
 from wagtail_localize.strings import INLINE_TAGS, StringValue
 
 from wagtail_localize_ai.models import AITranslatorSettings, TranslationLog
+from wagtail_localize_ai.pricing import compute_cost
 from wagtail_localize_ai.utils import get_llm_client, get_provider_display_name, normalize_model_identifier
 
 
@@ -44,37 +45,45 @@ class AITranslator(BaseMachineTranslator):
         ]
 
         translator_settings = AITranslatorSettings.load()
-
-        translation_log = TranslationLog(
-            provider=translator_settings.provider,
-            model=translator_settings.model,
-            input_tokens=0,
-            output_tokens=0,
-            error=None,
-        )
+        provider = translator_settings.provider
+        model = translator_settings.model
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             executor_results = list(
                 executor.map(translate_text, strings, [source_language] * len(strings), [target_language] * len(strings))
             )
-        
+
         results = {}
         error = ""
         seen_errors = []
-        for result in executor_results:
-            if "usage" in result:
-                translation_log.input_tokens += result["usage"]["input_tokens"]
-                translation_log.output_tokens += result["usage"]["output_tokens"]
-            if "error" in result:
-                err = result["error"]
+        for text, result in zip(strings, executor_results):
+            usage = result.get("usage") or {"input_tokens": 0, "output_tokens": 0}
+            source_text = result.get("source_text") or text.get_translatable_html()
+            translated_text = result.get("translated_text")
+            err = result.get("error")
+
+            string_id, page_id = _resolve_ids(source_locale, text)
+            cost_usd = compute_cost(model, usage["input_tokens"], usage["output_tokens"])
+
+            TranslationLog.objects.create(
+                provider=provider,
+                model=model,
+                input_tokens=usage["input_tokens"],
+                output_tokens=usage["output_tokens"],
+                error=err,
+                page_id=page_id,
+                string_id=string_id,
+                source_text=source_text,
+                translated_text=translated_text,
+                cost_usd=cost_usd,
+            )
+
+            if err:
                 if err not in seen_errors:
                     seen_errors.append(err)
                 error += err + "\n"
                 continue
             results.update(result["result"])
-
-        translation_log.error = error
-        translation_log.save()
 
         if not results and strings:
             # Surface only the distinct error messages, not 22 copies of the
@@ -132,6 +141,37 @@ def sanitize_html(html: str) -> str:
     return str(soup)
 
 
+def _resolve_ids(source_locale: Locale, text: StringValue):
+    """Best-effort resolve of (string_id, page_id) for a source segment.
+
+    Returns (None, None) if either can't be determined. A source String may
+    belong to multiple pages/segments; only the first is used for page_id.
+    """
+    string_id = None
+    page_id = None
+    try:
+        from wagtail_localize.models import String, StringSegment
+        from wagtail.models import Page
+
+        data_hash = String._get_data_hash(text.data)
+        string = String.objects.filter(locale=source_locale, data_hash=data_hash).first()
+        if string:
+            string_id = string.id
+            seg = (
+                StringSegment.objects.filter(string_id=string.id)
+                .select_related("context")
+                .first()
+            )
+            if seg and seg.context_id:
+                translation_key = seg.context.object_id
+                page = Page.objects.filter(translation_key=translation_key).first()
+                if page:
+                    page_id = page.id
+    except Exception:
+        pass
+    return string_id, page_id
+
+
 def translate_text(text: StringValue, source_language: str, target_language: str):
     translator_settings = AITranslatorSettings.load()
 
@@ -140,8 +180,9 @@ def translate_text(text: StringValue, source_language: str, target_language: str
     if not model or not provider:
         return {
             "error": _("No provider or model configured"),
+            "source_text": text.get_translatable_html(),
         }
-    
+
     style_prompt = translator_settings.prompt
        
     SYSTEM_PROMPT = (
@@ -195,10 +236,12 @@ def translate_text(text: StringValue, source_language: str, target_language: str
                 continue
             return {
                 "error": str(e),
+                "source_text": text.get_translatable_html(),
             }
     else:
         return {
             "error": str(last_error),
+            "source_text": text.get_translatable_html(),
         }
 
     content = (response.choices[0].message.content or "").strip()
@@ -207,8 +250,10 @@ def translate_text(text: StringValue, source_language: str, target_language: str
         "output_tokens": response.usage.completion_tokens or 0,
     }
 
+    source_text = text.get_translatable_html()
+
     if not content:
-        return {"error": _("Translation failed"), "usage": usage}
+        return {"error": _("Translation failed"), "usage": usage, "source_text": source_text}
 
     lines = content.splitlines()
     if lines and lines[0].lstrip().startswith("```"):
@@ -221,9 +266,11 @@ def translate_text(text: StringValue, source_language: str, target_language: str
     try:
         value = StringValue.from_translated_html(sanitized)
     except ValueError as e:
-        return {"error": str(e), "usage": usage}
+        return {"error": str(e), "usage": usage, "source_text": source_text, "translated_text": sanitized}
 
     return {
         "result": {text: value},
         "usage": usage,
+        "source_text": source_text,
+        "translated_text": sanitized,
     }
