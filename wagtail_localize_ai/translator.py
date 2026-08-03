@@ -153,7 +153,7 @@ def translate_text(text: StringValue, source_language: str, target_language: str
         "wrapping tags.\n\n"
         "Rules:\n"
         "- Keep all HTML tags and their id attributes exactly as in the source, same order, no new attributes.\n"
-        "- Do not translate product/brand/feature names, URLs, code, or config keys.\n"
+        "- Do not translate URLs, code, or config keys.\n"
         "- Use natural target-language word order and formal register, not source word order.\n"
         "- Wrap clickable UI labels (buttons, menu items) in the target language's standard quotation convention "
         "(e.g. « » in Arabic/French) only when the text follows a verb like click/press/select. "
@@ -175,6 +175,12 @@ def translate_text(text: StringValue, source_language: str, target_language: str
     ]
 
     client = get_llm_client(provider)
+    # DeepSeek-V4-flash is a reasoning model; with reasoning left at the
+    # gateway default it spends ~15K output tokens "thinking" on short strings
+    # and hits the output cap, truncating the actual translation. "low" keeps a
+    # small reasoning budget while leaving room for the translated text. GLM
+    # and other models stay on the provider default ("auto").
+    completion_kwargs = {"reasoning_effort": "low"} if "deepseek" in (model or "").lower() else {}
     last_error = None
     for attempt in range(MAX_RETRIES + 1):
         try:
@@ -182,6 +188,7 @@ def translate_text(text: StringValue, source_language: str, target_language: str
                 model=model,
                 temperature=0,
                 messages=messages,
+                **completion_kwargs,
             )
             break
         except Exception as e:
