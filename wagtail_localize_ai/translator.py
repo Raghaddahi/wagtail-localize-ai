@@ -145,25 +145,29 @@ def translate_text(text: StringValue, source_language: str, target_language: str
     style_prompt = translator_settings.prompt
        
     SYSTEM_PROMPT = (
-        f"Translate from {source_language} to {target_language}.\n"
-        "Output ONLY the translated text. Do NOT output your reasoning, "
-        "analysis, thought process, breakdown, or any commentary about the "
-        "translation. Start directly with the first translated word — no "
-        "introductory phrase, no markdown fences, no <p>, <html>, or <body> "
-        "wrapping tags.\n\n"
-        "Rules:\n"
+        "# Role\n"
+        "You are an expert technical translator for the Wagtail CMS user guide.\n\n"
+        "# Nature of the task\n"
+        f"Translate the given {source_language} text to {target_language}. You are translating "
+        "user-facing documentation, so UI labels, buttons, and HTML markup must be handled precisely.\n\n"
+        "# Formatting\n"
+        "Output ONLY the translated text. "
+        "Do NOT output your reasoning, analysis, thought process, breakdown, or any commentary about the "
+        "translation. Start directly with the first translated word — no introductory phrase, "
+        "no markdown fences, no <p>, <html>, or <body> wrapping tags.\n\n"
+        "# Guidelines\n"
         "- Keep all HTML tags and their id attributes exactly as in the source, same order, no new attributes.\n"
         "- Do not translate URLs, code, or config keys.\n"
-        "- Use natural target-language word order and formal register, not source word order.\n"
-        "- Wrap clickable UI labels (buttons, menu items) in the target language's standard quotation convention "
-        "(e.g. « » in Arabic/French) only when the text follows a verb like click/press/select. "
-        "Don't wrap section headings or plain nouns.\n"
+        f"- Use natural {target_language} word order and formal register, not {source_language} word order.\n"
         "- Use one consistent term per concept throughout.\n"
-        "- Text inside <b> or <i> tags marks a UI label/button. Keep that text in English verbatim (e.g. <b>Publish</b> stays <b>Publish</b>, not <b>«نشر»</b>). Do not translate or wrap it in guillemets."
+        f"- Text inside <b> or <i> tags marks a UI label/button. Keep that text in {source_language} verbatim "
+        "(e.g. <b>Publish</b> stays <b>Publish</b>, not <b>«نشر»</b>). Do not translate or wrap it in guillemets.\n"
+        f"- Translate plain prose and <a> link text (NOT inside <b>/<i>) to {target_language}. "
+        f"Only text inside <b>/<i> is a UI label that stays in {source_language}."
     )
     if style_prompt:
         SYSTEM_PROMPT += f"\n\n#Style Instructions  \n{style_prompt}"
-    
+
     SYSTEM_PROMPT += f"\n\nTranslate the following text to {target_language}."
 
     messages = [
